@@ -44,6 +44,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(mlang);
 
 #include "initguid.h"
 
+static IUnknown *font_link_global = NULL;
+
 static HRESULT MultiLanguage_create(IUnknown *pUnkOuter, LPVOID *ppObj);
 static HRESULT MLangConvertCharset_create(IUnknown *outer, void **obj);
 static HRESULT EnumRfc1766_create(LANGID LangId, IEnumRfc1766 **ppEnum);
@@ -3884,9 +3886,15 @@ HRESULT WINAPI DllCanUnloadNow(void)
 
 HRESULT WINAPI GetGlobalFontLinkObject(void **unknown)
 {
+    TRACE("%p\n", unknown);
+
     if (!unknown) return E_INVALIDARG;
 
-    FIXME("%p: stub\n", unknown);
+    if (!font_link_global)
+        MultiLanguage_create(NULL, (void**)&font_link_global);
 
-    return S_FALSE;
+    IUnknown_AddRef(font_link_global);
+    *unknown = font_link_global;
+
+    return S_OK;
 }
