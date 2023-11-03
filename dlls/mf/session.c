@@ -1859,6 +1859,24 @@ static void session_set_topology(struct media_session *session, DWORD flags, IMF
     IMFTopology *resolved_topology = NULL;
     HRESULT hr = S_OK;
 
+    if (flags & MFSESSION_SETTOPOLOGY_CLEAR_CURRENT)
+    {
+        if ((topology && topology == session->presentation.current_topology) || !topology)
+        {
+            /* FIXME: stop current topology, queue next one. */
+            session_clear_presentation(session);
+        }
+        else
+            hr = S_FALSE;
+
+        topology = NULL;
+    }
+    else if (topology && flags & MFSESSION_SETTOPOLOGY_IMMEDIATE)
+    {
+        session_clear_queued_topologies(session);
+        session_clear_presentation(session);
+    }
+
     /* Resolve unless claimed to be full. */
     if (!(flags & MFSESSION_SETTOPOLOGY_CLEAR_CURRENT) && topology)
     {
@@ -1876,24 +1894,6 @@ static void session_set_topology(struct media_session *session, DWORD flags, IMF
                 topology = resolved_topology;
             }
         }
-    }
-
-    if (flags & MFSESSION_SETTOPOLOGY_CLEAR_CURRENT)
-    {
-        if ((topology && topology == session->presentation.current_topology) || !topology)
-        {
-            /* FIXME: stop current topology, queue next one. */
-            session_clear_presentation(session);
-        }
-        else
-            hr = S_FALSE;
-
-        topology = NULL;
-    }
-    else if (topology && flags & MFSESSION_SETTOPOLOGY_IMMEDIATE)
-    {
-        session_clear_queued_topologies(session);
-        session_clear_presentation(session);
     }
 
     session_raise_topology_set(session, topology, hr);

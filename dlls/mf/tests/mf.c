@@ -2619,6 +2619,239 @@ static void test_media_session_events(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 }
 
+static IMFTopology *create_topology_from_file(LPCWSTR file, LPCWSTR mime)
+{
+    IMFTopologyNode *src_node, *sink_node;
+    IMFPresentationDescriptor *pd;
+    IMFActivate *sar_activate;
+    IMFStreamDescriptor *sd;
+    IMFMediaSource *source;
+    IMFTopology *topology;
+    BOOL selected;
+    HRESULT hr;
+
+    if(!(source = create_media_source(file, mime)))
+        return NULL;
+
+    hr = MFCreateTopology(&topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = MFCreateTopologyNode(MF_TOPOLOGY_SOURCESTREAM_NODE, &src_node);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFMediaSource_CreatePresentationDescriptor(source, &pd);
+    hr = IMFPresentationDescriptor_GetStreamDescriptorByIndex(pd, 0, &selected, &sd);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    init_source_node(source, -1, src_node, pd, sd);
+
+    hr = MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, &sink_node);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = MFCreateAudioRendererActivate(&sar_activate);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFTopologyNode_SetObject(sink_node, (IUnknown *)sar_activate);
+
+    IMFTopology_AddNode(topology, src_node);
+    IMFTopology_AddNode(topology, sink_node);
+    IMFTopologyNode_ConnectOutput(src_node, 0, sink_node, 0);
+
+    IMFTopologyNode_Release(src_node);
+    IMFTopologyNode_Release(sink_node);
+    IMFActivate_Release(sar_activate);
+    IMFPresentationDescriptor_Release(pd);
+    IMFStreamDescriptor_Release(sd);
+
+    return topology;
+}
+
+static void test_media_session_topologies(void)
+{
+    IMFTopology *topology, *topology2;
+    IMFCollection *output_nodes;
+    IUnknown *nodeunk, *nodeunk2, *unk;
+    IMFTopologyNode *node;
+    IMFAsyncCallback *callback;
+    IMFMediaSession *session;
+    PROPVARIANT pv;
+    HRESULT hr;
+
+    hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+    ok(hr == S_OK, "Startup failure, hr %#lx.\n", hr);
+
+    if (!(topology = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg")))
+    {
+        win_skip("MP3 not supported.\n");
+        MFShutdown();
+        return;
+    }
+
+    topology2 = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg");
+
+    callback = create_test_callback(TRUE);
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
+
+    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
+    IMFCollection_GetElement(output_nodes, 0, &nodeunk);
+    IMFCollection_Release(output_nodes);
+    IUnknown_QueryInterface(nodeunk, &IID_IMFTopologyNode, (void**)&node);
+
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, TRUE);
+
+    IMFTopologyNode_Release(node);
+
+    /* Test setting a topology that was already used. */
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
+    IMFCollection_GetElement(output_nodes, 0, &nodeunk2);
+    IMFCollection_Release(output_nodes);
+
+    ok(nodeunk == nodeunk2, "Expected nodes to be the same. %p == %p\n", nodeunk, nodeunk2);
+    IUnknown_QueryInterface(nodeunk2, &IID_IMFTopologyNode, (void**)&node);
+
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, TRUE);
+
+    IMFTopologyNode_Release(node);
+    IUnknown_Release(unk);
+    IUnknown_Release(nodeunk2);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_ClearTopologies(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_ClearTopologies(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
+    IMFCollection_GetElement(output_nodes, 0, &nodeunk2);
+    IMFCollection_Release(output_nodes);
+
+    ok(nodeunk == nodeunk2, "Expected nodes to be the same. %p == %p\n", nodeunk, nodeunk2);
+    IUnknown_QueryInterface(nodeunk2, &IID_IMFTopologyNode, (void**)&node);
+
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, TRUE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+
+    IMFTopologyNode_Release(node);
+    IUnknown_Release(unk);
+    IUnknown_Release(nodeunk2);
+
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+
+    /* Test setting the same topology again. */
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_ClearTopologies(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_ClearTopologies(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    IMFMediaSession_Shutdown(session);
+    IMFMediaSession_Release(session);
+    IMFAsyncCallback_Release(callback);
+    IMFTopology_Release(topology);
+    IMFTopology_Release(topology2);
+
+    MFShutdown();
+}
+
 static void test_media_session(void)
 {
     IMFRateSupport *rate_support;
@@ -7228,6 +7461,7 @@ START_TEST(mf)
     test_sequencer_source();
     test_media_session();
     test_media_session_events();
+    test_media_session_topologies();
     test_media_session_rate_control();
     test_MFShutdownObject();
     test_presentation_clock();
