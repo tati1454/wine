@@ -606,8 +606,25 @@ static inline const void *buffer_read(struct memory_buffer *mbuf, INT size)
     return NULL;
 }
 
+/* Represents a string section and the font it should use. */
+struct gdip_font_link_section {
+    DWORD start; /* The starting index of the string where the font applies. */
+    DWORD end; /* The end index of the string. */
+    GpFont *font;
+};
+
+struct gdip_font_link_info {
+    GDIPCONST GpFont *base_font;
+    struct gdip_font_link_section *sections;
+    INT count;
+    INT size;
+};
+
+struct gdip_font_link_section *get_font_link_section(struct gdip_font_link_info *font_link_info, DWORD index);
+
+
 typedef GpStatus (*gdip_format_string_callback)(GpGraphics *graphics,
-    GDIPCONST WCHAR *string, INT index, INT length, GDIPCONST GpFont *font,
+    GDIPCONST WCHAR *string, INT index, INT length, struct gdip_font_link_info *sections,
     GDIPCONST RectF *rect, GDIPCONST GpStringFormat *format,
     INT lineno, const RectF *bounds, INT *underlined_indexes,
     INT underlined_index_count, void *user_data);
