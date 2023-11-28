@@ -3344,7 +3344,8 @@ static HRESULT WINAPI fnIMLangFontLink2_GetStrCodePages( IMLangFontLink2* iface,
         if (ret != S_OK) return E_FAIL;
 
         if (!cps) cps = cp;
-        else if ((cps & cp) != 0) cps &= cp;
+        else if ((cps & cp) != 0 &&
+                 ((priority_cp & cps) || !(priority_cp & cp))) cps &= cp;
         else
         {
             i--;
