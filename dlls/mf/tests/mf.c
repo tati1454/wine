@@ -2665,14 +2665,31 @@ static IMFTopology *create_topology_from_file(LPCWSTR file, LPCWSTR mime)
     return topology;
 }
 
+static IMFTopologyNode *get_output_node(IMFTopology *topology, DWORD index)
+{
+    IMFCollection *output_nodes;
+    IMFTopologyNode *node;
+    IUnknown *nodeunk;
+
+    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
+    IMFCollection_GetElement(output_nodes, index, &nodeunk);
+    IMFCollection_Release(output_nodes);
+    IUnknown_QueryInterface(nodeunk, &IID_IMFTopologyNode, (void**)&node);
+    IUnknown_Release(nodeunk);
+
+    return node;
+}
+
 static void test_media_session_topologies(void)
 {
     IMFTopology *topology, *topology2;
-    IMFCollection *output_nodes;
-    IUnknown *nodeunk, *nodeunk2, *unk;
-    IMFTopologyNode *node;
+    IUnknown *unk;
+    IMFTopologyNode *node, *node2;
+    IMFStreamSink *stream_sink, *stream_sink2;
+    IMFMediaSink *media_sink = NULL;
+    IMFActivate *activate;
     IMFAsyncCallback *callback;
-    IMFMediaSession *session;
+    IMFMediaSession *session, *session2;
     PROPVARIANT pv;
     HRESULT hr;
 
@@ -2689,111 +2706,64 @@ static void test_media_session_topologies(void)
     topology2 = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg");
 
     callback = create_test_callback(TRUE);
+
     hr = MFCreateMediaSession(NULL, &session);
     ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
 
-    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
-    IMFCollection_GetElement(output_nodes, 0, &nodeunk);
-    IMFCollection_Release(output_nodes);
-    IUnknown_QueryInterface(nodeunk, &IID_IMFTopologyNode, (void**)&node);
-
+    /* Check if the topology and the activation object is modified when calling SetTopology. */
+    node = get_output_node(topology, 0);
     IMFTopologyNode_GetObject(node, &unk);
     check_interface(unk, &IID_IMFActivate, TRUE);
+    IUnknown_QueryInterface(unk, &IID_IMFActivate, (void**)&activate);
+    IUnknown_Release(unk);
 
-    IMFTopologyNode_Release(node);
+    EXPECT_REF(activate, 2);
 
-    /* Test setting a topology that was already used. */
     hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
-    IMFCollection_GetElement(output_nodes, 0, &nodeunk2);
-    IMFCollection_Release(output_nodes);
-
-    ok(nodeunk == nodeunk2, "Expected nodes to be the same. %p == %p\n", nodeunk, nodeunk2);
-    IUnknown_QueryInterface(nodeunk2, &IID_IMFTopologyNode, (void**)&node);
-
-    IMFTopologyNode_GetObject(node, &unk);
-    check_interface(unk, &IID_IMFActivate, TRUE);
-
-    IMFTopologyNode_Release(node);
+    node2 = get_output_node(topology, 0);
+    IMFTopologyNode_GetObject(node2, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
     IUnknown_Release(unk);
-    IUnknown_Release(nodeunk2);
+    ok(node == node2, "Expected nodes to be the same. %p == %p\n", node, node2);
+    IMFTopologyNode_Release(node2);
 
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    EXPECT_REF(activate, 2);
 
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Stop(session);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_ClearTopologies(session);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
+    /* Check if the activation object is back when clearing and setting a new topology. */
     hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology2);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
     pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Stop(session);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    pv.vt = VT_EMPTY;
     hr = IMFMediaSession_ClearTopologies(session);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
-    IMFTopology_GetOutputNodeCollection(topology, &output_nodes);
-    IMFCollection_GetElement(output_nodes, 0, &nodeunk2);
-    IMFCollection_Release(output_nodes);
-
-    ok(nodeunk == nodeunk2, "Expected nodes to be the same. %p == %p\n", nodeunk, nodeunk2);
-    IUnknown_QueryInterface(nodeunk2, &IID_IMFTopologyNode, (void**)&node);
+    node2 = get_output_node(topology, 0);
+    IMFTopologyNode_GetObject(node2, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+    IUnknown_Release(unk);
+    ok(node == node2, "Expected nodes to be the same. %p == %p\n", node, node2);
+    IMFTopologyNode_Release(node2);
 
     IMFTopologyNode_GetObject(node, &unk);
-    check_interface(unk, &IID_IMFActivate, TRUE);
+    check_interface(unk, &IID_IMFActivate, FALSE);
     check_interface(unk, &IID_IMFStreamSink, TRUE);
 
-    IMFTopologyNode_Release(node);
+    /* Check if the media sink is available. */
+    IUnknown_QueryInterface(unk, &IID_IMFStreamSink, (void**)&stream_sink);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
     IUnknown_Release(unk);
-    IUnknown_Release(nodeunk2);
-
-    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-
-    pv.vt = VT_EMPTY;
-    hr = IMFMediaSession_Stop(session);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
-    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
-    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
 
     /* Test setting the same topology again. */
@@ -2843,11 +2813,169 @@ static void test_media_session_topologies(void)
     hr = wait_media_event(session, callback, MESessionTopologiesCleared, 1000, &pv);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
 
+
+    /* Check what happens with the node when shutting down the media session. */
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    todo_wine ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IMFMediaSession_Close(session);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    todo_wine ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    todo_wine EXPECT_REF(topology, 2);
+
+    IMFMediaSession_Shutdown(session);
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+    IUnknown_Release(unk);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == MF_E_STREAMSINK_REMOVED, "Expected MF_E_STREAMSINK_REMOVED, got %#lx\n", hr);
+    EXPECT_REF(topology, 1);
+    EXPECT_REF(activate, 1);
+    IMFMediaSession_Release(session);
+
+    /* Check if it's possible to reuse a topology from a shutdown session. */
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == MF_E_STREAMSINK_REMOVED, "Unexpected hr %#lx.\n", hr);
+
     IMFMediaSession_Shutdown(session);
     IMFMediaSession_Release(session);
-    IMFAsyncCallback_Release(callback);
+
+    IMFActivate_Release(activate);
+    IMFStreamSink_Release(stream_sink);
+    IMFTopologyNode_Release(node);
     IMFTopology_Release(topology);
     IMFTopology_Release(topology2);
+
+
+    /* Check if it's possible to use the same topology in two different sessions. */
+    topology = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg");
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    node = get_output_node(topology, 0);
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+    IMFTopologyNode_Release(node);
+
+    IUnknown_QueryInterface(unk, &IID_IMFStreamSink, (void**)&stream_sink);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IUnknown_Release(unk);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStarted, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Stop(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionStopped, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = MFCreateMediaSession(NULL, &session2);
+    ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session2, MFSESSION_SETTOPOLOGY_IMMEDIATE, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session2, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    pv.vt = VT_EMPTY;
+    hr = IMFMediaSession_Start(session2, &GUID_NULL, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event_until_blocking(session2, callback, MESessionStarted, 1000, &pv);
+    ok(hr == MF_E_MULTIPLE_SUBSCRIBERS, "Unexpected hr %#lx.\n", hr);
+
+    /* Check if the session shutsdown the topology even though is used in other session. */
+    IMFMediaSession_Shutdown(session2);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == MF_E_STREAMSINK_REMOVED, "Unexpected hr %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IMFStreamSink_Release(stream_sink);
+    IMFMediaSession_Release(session2);
+
+    IMFMediaSession_Shutdown(session);
+    IMFMediaSession_Release(session);
+    IMFTopology_Release(topology);
+
+
+    /* Check if the topologies that have been queued but never played should also shutdown. */
+    topology = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg");
+    topology2 = create_topology_from_file(L"mp3encdata.bin", L"audio/mpeg");
+    hr = MFCreateMediaSession(NULL, &session);
+    ok(hr == S_OK, "Failed to create media session, hr %#lx.\n", hr);
+
+    hr = IMFMediaSession_SetTopology(session, 0, topology);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    node = get_output_node(topology, 0);
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+
+    IUnknown_QueryInterface(unk, &IID_IMFStreamSink, (void**)&stream_sink);
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IUnknown_Release(unk);
+    IMFTopologyNode_Release(node);
+
+    hr = IMFMediaSession_SetTopology(session, 0, topology2);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+    hr = wait_media_event(session, callback, MESessionTopologySet, 1000, &pv);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    node = get_output_node(topology2, 0);
+    IMFTopologyNode_GetObject(node, &unk);
+    check_interface(unk, &IID_IMFActivate, FALSE);
+    check_interface(unk, &IID_IMFStreamSink, TRUE);
+
+    IUnknown_QueryInterface(unk, &IID_IMFStreamSink, (void**)&stream_sink2);
+    hr = IMFStreamSink_GetMediaSink(stream_sink2, &media_sink);
+    ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IUnknown_Release(unk);
+    IMFTopologyNode_Release(node);
+
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == S_OK, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+
+    hr = IMFMediaSession_Shutdown(session);
+    ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+
+    hr = IMFStreamSink_GetMediaSink(stream_sink, &media_sink);
+    ok(hr == MF_E_STREAMSINK_REMOVED, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IMFStreamSink_Release(stream_sink);
+
+    hr = IMFStreamSink_GetMediaSink(stream_sink2, &media_sink);
+    ok(hr == MF_E_STREAMSINK_REMOVED, "Expected S_OK, got %#lx\n", hr);
+    if (media_sink) IMFMediaSink_Release(media_sink);
+    IMFStreamSink_Release(stream_sink);
+
+    IMFMediaSession_Release(session);
+    IMFTopology_Release(topology);
+    IMFTopology_Release(topology2);
+    IMFAsyncCallback_Release(callback);
 
     MFShutdown();
 }
