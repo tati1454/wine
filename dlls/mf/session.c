@@ -494,6 +494,7 @@ static void session_clear_queued_topologies(struct media_session *session)
 
     LIST_FOR_EACH_ENTRY_SAFE(ptr, next, &session->topologies, struct queued_topology, entry)
     {
+        ptr->status = MF_TOPOSTATUS_ENDED;
         list_remove(&ptr->entry);
         IMFTopology_Release(ptr->topology);
         free(ptr);
