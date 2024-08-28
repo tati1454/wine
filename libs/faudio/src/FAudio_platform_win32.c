@@ -178,8 +178,9 @@ static DWORD WINAPI FAudio_AudioClientThread(void *user)
 	hr = IAudioClient_Start(args->client);
 	FAudio_assert(!FAILED(hr) && "Failed to start IAudioClient!");
 
-	while (WaitForMultipleObjects(2, args->events, FALSE, INFINITE) == WAIT_OBJECT_0)
+	while (TRUE)
 	{
+		Sleep(10);
 		hr = IAudioClient_GetCurrentPadding(args->client, &padding);
 		if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
 		{

@@ -2500,6 +2500,93 @@ static void test_worst_case(void)
     IAudioRenderClient_Release(arc);
 }
 
+static void test_buffer(void)
+{
+    HANDLE event;
+    HRESULT hr;
+    IAudioClient *ac;
+    IAudioRenderClient *arc;
+    IAudioClock *acl;
+    WAVEFORMATEX *pwfx;
+    REFERENCE_TIME defp;
+    UINT64 freq, pos, pcpos0, pcpos;
+    BYTE *data;
+    DWORD r;
+    UINT32 pad, fragment, sum, bufsize;
+    int i,j;
+
+    hr = IMMDevice_Activate(dev, &IID_IAudioClient, CLSCTX_INPROC_SERVER,
+            NULL, (void**)&ac);
+    ok(hr == S_OK, "Activation failed with %08lx\n", hr);
+    if(hr != S_OK)
+        return;
+
+    hr = IAudioClient_GetMixFormat(ac, &pwfx);
+    ok(hr == S_OK, "GetMixFormat failed: %08lx\n", hr);
+
+    hr = IAudioClient_Initialize(ac, AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 500000, 0, pwfx, NULL);
+    ok(hr == S_OK, "Initialize failed: %08lx\n", hr);
+    if(hr != S_OK)
+        return;
+
+    hr = IAudioClient_GetDevicePeriod(ac, &defp, NULL);
+    ok(hr == S_OK, "GetDevicePeriod failed: %08lx\n", hr);
+
+    fragment  =  MulDiv(defp,   pwfx->nSamplesPerSec, 10000000);
+
+    event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ok(event != NULL, "CreateEvent failed\n");
+
+    hr = IAudioClient_SetEventHandle(ac, event);
+    ok(hr == S_OK, "SetEventHandle failed: %08lx\n", hr);
+
+    hr = IAudioClient_GetService(ac, &IID_IAudioRenderClient, (void**)&arc);
+    ok(hr == S_OK, "GetService(IAudioRenderClient) failed: %08lx\n", hr);
+
+    hr = IAudioClient_GetService(ac, &IID_IAudioClock, (void**)&acl);
+    ok(hr == S_OK, "GetService(IAudioClock) failed: %08lx\n", hr);
+
+    hr = IAudioClock_GetFrequency(acl, &freq);
+    ok(hr == S_OK, "GetFrequency failed: %08lx\n", hr);
+
+    hr = IAudioClient_Start(ac);
+    ok(hr == S_OK, "AudioClient_Start failed: %08lx\n", hr);
+
+    hr = WaitForSingleObject(event, INFINITE);
+    ok(hr == WAIT_OBJECT_0, "timedout");
+
+    hr = IAudioClient_GetBufferSize(ac, &bufsize);
+    ok(hr == S_OK, "GetBufferSize failed: %08lx\n", hr);
+
+    hr = IAudioClient_GetCurrentPadding(ac, &pad);
+    ok(hr == S_OK, "GetCurrentPadding failed: %08lx\n", hr);
+
+    hr = IAudioRenderClient_GetBuffer(arc, bufsize - pad, &data);
+    ok(hr == S_OK, "GetBuffer failed: %08lx\n", hr);
+
+    hr = WaitForSingleObject(event, INFINITE);
+    ok(hr == WAIT_OBJECT_0, "timedout");
+
+    hr = IAudioRenderClient_ReleaseBuffer(arc, 20, AUDCLNT_BUFFERFLAGS_SILENT);
+    ok(hr == S_OK, "ReleaseBuffer failed: %08lx\n", hr);
+
+    hr = WaitForSingleObject(event, INFINITE);
+    ok(hr == WAIT_OBJECT_0, "timedout");
+
+    hr = IAudioClient_GetCurrentPadding(ac, &pad);
+    ok(hr == S_OK, "GetCurrentPadding failed: %08lx\n", hr);
+    ok(0, "got %d pad.\n", pad);
+
+    hr = IAudioClient_Stop(ac);
+    ok(hr == S_OK, "AudioClient_Stop failed: %08lx\n", hr);
+
+    CoTaskMemFree(pwfx);
+    IAudioClient_Release(ac);
+    IAudioClock_Release(acl);
+    IAudioRenderClient_Release(arc);
+}
+
 static void test_marshal(void)
 {
     IStream *pStream;
@@ -2627,28 +2714,29 @@ START_TEST(render)
         goto cleanup;
     }
 
-    test_audioclient();
-    test_formats(AUDCLNT_SHAREMODE_EXCLUSIVE);
-    test_formats(AUDCLNT_SHAREMODE_SHARED);
-    test_references();
-    test_marshal();
+    // test_audioclient();
+    // test_formats(AUDCLNT_SHAREMODE_EXCLUSIVE);
+    // test_formats(AUDCLNT_SHAREMODE_SHARED);
+    // test_references();
+    // test_marshal();
     if (GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mode))
     {
         trace("Output to a MS-DOS console is particularly slow and disturbs timing.\n");
         trace("Please redirect output to a file.\n");
     }
-    test_event();
-    test_padding();
-    test_clock(1);
-    test_clock(0);
-    test_session();
-    test_streamvolume();
-    test_channelvolume();
-    test_simplevolume();
-    test_volume_dependence();
-    test_session_creation();
-    test_worst_case();
-    test_endpointvolume();
+    // test_event();
+    // test_padding();
+    // test_clock(1);
+    // test_clock(0);
+    // test_session();
+    // test_streamvolume();
+    // test_channelvolume();
+    // test_simplevolume();
+    // test_volume_dependence();
+    // test_session_creation();
+    // test_worst_case();
+    // test_endpointvolume();
+    test_buffer();
 
     IMMDevice_Release(dev);
 

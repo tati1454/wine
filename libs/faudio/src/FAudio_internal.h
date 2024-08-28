@@ -635,8 +635,12 @@ void FAudio_INTERNAL_debug_fmt(
 #define LOG_DETAIL(engine, fmt, ...) PRINT_DEBUG(engine, DETAIL, "DETAIL", fmt, __VA_ARGS__)
 #define LOG_API_ENTER(engine) PRINT_DEBUG(engine, API_CALLS, "API Enter", "%s", __func__)
 #define LOG_API_EXIT(engine) PRINT_DEBUG(engine, API_CALLS, "API Exit", "%s", __func__)
-#define LOG_FUNC_ENTER(engine) PRINT_DEBUG(engine, FUNC_CALLS, "FUNC Enter", "%s", __func__)
-#define LOG_FUNC_EXIT(engine) PRINT_DEBUG(engine, FUNC_CALLS, "FUNC Exit", "%s", __func__)
+#define LOG_FUNC_ENTER(engine) PRINT_DEBUG(engine, FUNC_CALLS, "FUNC Enter", "%s", __func__) \
+							   LARGE_INTEGER pc1, pc2; \
+							   QueryPerformanceCounter(&pc1);
+#define LOG_FUNC_EXIT(engine) QueryPerformanceCounter(&pc2); \
+							  PRINT_DEBUG(engine, FUNC_CALLS, "FUNC Exit", "%s took %lums", __func__, (unsigned long)(pc2.QuadPart - pc1.QuadPart));
+
 /* TODO: LOG_TIMING */
 #define LOG_MUTEX_CREATE(engine, mutex) PRINT_DEBUG(engine, LOCKS, "Mutex Create", "%p (%s)", mutex, #mutex)
 #define LOG_MUTEX_DESTROY(engine, mutex) PRINT_DEBUG(engine, LOCKS, "Mutex Destroy", "%p (%s)", mutex, #mutex)

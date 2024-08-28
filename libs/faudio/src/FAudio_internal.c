@@ -427,15 +427,15 @@ static void FAudio_INTERNAL_DecodeBuffers(
 			endRead
 		);
 
-		LOG_INFO(
-			voice->audio,
-			"Voice %p, buffer %p, decoded %u samples from [%u,%u)",
-			(void*) voice,
-			(void*) buffer,
-			endRead,
-			voice->src.curBufferOffset,
-			voice->src.curBufferOffset + endRead
-		)
+		// LOG_INFO(
+		// 	voice->audio,
+		// 	"Voice %p, buffer %p, decoded %u samples from [%u,%u)",
+		// 	(void*) voice,
+		// 	(void*) buffer,
+		// 	endRead,
+		// 	voice->src.curBufferOffset,
+		// 	voice->src.curBufferOffset + endRead
+		// )
 
 		decoded += endRead;
 		voice->src.curBufferOffset += endRead;
@@ -493,12 +493,12 @@ static void FAudio_INTERNAL_DecodeBuffers(
 					voice->src.totalSamples = 0;
 				}
 
-				LOG_INFO(
-					voice->audio,
-					"Voice %p, finished with buffer %p",
-					(void*) voice,
-					(void*) buffer
-				)
+				// LOG_INFO(
+				// 	voice->audio,
+				// 	"Voice %p, finished with buffer %p",
+				// 	(void*) voice,
+				// 	(void*) buffer
+				// )
 
 				/* Change active buffer, delete finished buffer */
 				toDelete = voice->src.bufferList;
